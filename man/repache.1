@@ -1,0 +1,36 @@
+.TH "repache" 1
+.SH NAME
+repache \- replay apache log files
+.SH SYNOPSIS
+.B repache
+[\fIOPTION\fR]... [<targetHostIP>]
+.SH DESCRIPTION
+.B repache
+replays apache log files by creating actual TCP connections with original
+timing and source ip. Therefore a simple TCP stack was included that handles the
+TCP connections in promiscuous mode. In order to use it one has to ensure, that
+the response packets are routed to the host at which repache is running.
+Therefore repache cannot be used in arbitrary network infrastructures.
+.SH OPTIONS
+.TP
+\fB\-b, \-\-binary\fR
+optional flag for loading binary log file
+.TP
+\fB\-d, \-\-device\fR=\fIDEVICE\fR
+network listening device for tcp
+.TP
+\fB\-f, \-\-file\fR=\fIFILENAME\fR
+apache log file (binary if b is set)
+.TP
+\fB\-h, \-\-help
+print the help message and exit
+.SH AUTHOR
+Written by Christian Kofler, Matthias Reif, Markus Goldstein and Christian Jansohn
+.SH REPORTING BUGS
+Report bugs to <matthias.reif@iupr.dfki.de>.
+.SH COPYRIGHT
+Copyright 2008 Deutsches Forschungszentrum fuer Kuenstliche Intelligenz
+or its licensors, as applicable.
+.P
+This is free software. Licensed under the Apache License, Version 2.0.
+There is NO WARRANTY, to the extent permitted by law.
