@@ -11,7 +11,7 @@
  *
  * Project: repache
  * File: RawTcpSocket.h
- * Purpose: header file for the raw socket class 
+ * Purpose: header file for the raw socket class
  * Responsible: Christian Kofler
  * Primary Repository: http://repache.googlecode.com/svn/trunk/
  * Web Sites: www.iupr.org, www.dfki.de, http://code.google.com/p/repache/
@@ -20,11 +20,14 @@
 #ifndef RAW_TCP_SOCKET_H
 #define RAW_TCP_SOCKET_H
 
+#include <string>
 #include <sys/socket.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
-#include <string>
+#include <arpa/inet.h> // inet_addr()
+#include <arpa/inet.h>
 
+#include "Sniffer.h"
 #include "tcpoptions.h"
 #include "Requestor.h"
 
@@ -86,17 +89,17 @@ public:
      * mainly for debugging purpose.
      */
     void printSettings();
-    
+
     /**
      * initialize fields of ip and tcp struct properly
      * @return the port number of this socket
      */
     void init(Request& request);
     uint16_t init(string srcIP="", string destIP="", uint16_t srcPort=0, uint16_t destPort=80);
-    
+
     int rawsock;
 private:
-    
+
     bool connected;
     struct sockaddr_in destAddr;
     unsigned int packetsize;
@@ -107,9 +110,9 @@ private:
     struct tcphdr tcp;
     uint32_t srcSeq;
     uint32_t ackSeq;
-    
+
     int tcpOptionsIndex;
-    
+
     /**
      * just send out a packet (with or without data) without waiting for
      * an ACK

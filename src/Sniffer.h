@@ -11,7 +11,7 @@
  *
  * Project: repache
  * File: sniffer.h
- * Purpose: header file for the sniffer 
+ * Purpose: header file for the sniffer
  * Responsible: Christian Kofler
  * Primary Repository: http://repache.googlecode.com/svn/trunk/
  * Web Sites: www.iupr.org, www.dfki.de, http://code.google.com/p/repache/
@@ -23,10 +23,14 @@
 #include <string>
 #include <pcap.h>
 
+#include <net/ethernet.h>
+#include <netinet/ip.h>
+#include <netinet/tcp.h>
+
 using namespace std;
 
 /**
- * Sniffs the network for packets.
+ * @brief Sniffs the network for packets.
  * You can specify a host and port as a filter to reduce traffic
  * and then access the respective fields of the TCP/IP header to see
  * if this is the packet you had been waiting for.
@@ -65,9 +69,6 @@ private:
     struct bpf_program fp;          /* The compiled filter */
     bpf_u_int32 mask;               /* Our netmask */
     bpf_u_int32 net;                /* Our IP */
-
-
 };
-
 
 #endif

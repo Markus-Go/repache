@@ -10,36 +10,17 @@
  * limitations under the License.
  *
  * Project: repache
- * File: requestor.cc 
- * Purpose: the requestor 
+ * File: requestor.cc
+ * Purpose: the requestor
  * Responsible: Christian Kofler
  * Primary Repository: http://repache.googlecode.com/svn/trunk/
  * Web Sites: www.iupr.org, www.dfki.de, http://code.google.com/p/repache/
  */
 
 #include "Requestor.h"
-
-#include <pthread.h>
-//#include <sys/socket.h>
-//#include <netinet/in.h>
-#include <net/ethernet.h>
-#include <arpa/inet.h>
-#include <cstdio>
-#include <set>
-#include <map>
-#include <queue>
-#include <sys/time.h>
-#include <unistd.h>
-
 #include "RawTcpSocket.h"
-#include "Sniffer.h"
 
 using namespace std;
-
-/** value type for the reveiveQ map */
-typedef map<uint32_t, Request>::value_type rcvQValType;
-/** iterator type for the receiveQ map */
-typedef map<uint32_t, Request>::iterator rcvQIterator;
 
 /** mutex to protect the set of successfully sent requests */
 pthread_mutex_t sentLock = PTHREAD_MUTEX_INITIALIZER;
@@ -57,26 +38,27 @@ pthread_mutex_t rcvQLock = PTHREAD_MUTEX_INITIALIZER;
 /** a queue with all Requests for which there is something to send */
 vector<Request> sendQ;
 /** a Set with all Requests for which there is something to receive */
-map<uint32_t, Request> receiveQ;
+map<uint64_t, Request> receiveQ;
+/** value type for the reveiveQ map */
+typedef map<uint64_t, Request>::value_type rcvQValType;
+/** iterator type for the receiveQ map */
+typedef map<uint64_t, Request>::iterator rcvQIterator;
 
 
 /** the destination IP for all Requests */
 string DESTINATION_IP = "";
 /** wait this time for an answer (in seconds) */
 static const int TIMEOUT = 3;
-/** max number of attempts to send*/ 
+/** max number of attempts to send */
 static const int ATTEMPTS = 3;
 
 
 char* eth_device = NULL;
 unsigned long int okCnt = 0;
+unsigned long int okCntTotal = 0;
 unsigned long int failedCnt = 0;
+unsigned long int failedCntTotal = 0;
 unsigned long int rstCnt = 0;
-
-void printStats()
-{
-    cout << "\x1b[32mok: " << okCnt << "\t\x1b[31mfailed: " << failedCnt << "\x1b[0m" << endl;
-}
 
 /**
  * runs a command on the shell without catching any output.
@@ -114,30 +96,18 @@ void receiveQInsert(rcvQValType val) {
     pthread_mutex_unlock(&rcvQLock);
 }
 
-void success(Request& request)
-{
+void success(Request& request) {
     okCnt++;
-/*    pthread_mutex_lock(&sentLock);
-    sentRequests.insert(inet_addr(request.srcIP.c_str()));
-
-    //fprintf(stderr,"%s\n",request->srcIP.c_str());
-
-    pthread_mutex_unlock(&sentLock);*/
+    okCntTotal++;
 }
 
-void resetC(Request& request){
+void resetC(Request& request) {
     rstCnt++;
-}    
+}
 
 void failed(Request& request) {
-//    cout << "[DBG] Request failed:" << endl;
-//    request.print();
     failedCnt++;
-/*    pthread_mutex_lock(&failedLock);
-    if(failedRequests.insert(inet_addr(request.srcIP.c_str())).second) {
-	//printf("%s\n",request->srcIP.c_str());
-    }
-    pthread_mutex_unlock(&failedLock);*/
+    failedCntTotal++;
 }
 
 /**
@@ -148,7 +118,7 @@ void* sendThread(void* arg) {
     // the Requests currently to be sent
     vector<Request> reqs;
     RawTcpSocket* socket = new RawTcpSocket();
-       
+
     while(true) {
         pthread_mutex_lock(&sendQLock);
         // take over all Requests if there are some
@@ -164,19 +134,15 @@ void* sendThread(void* arg) {
         // only go on if there is something to send
         if(reqs.size() == 0)
         {
-            //nanosleep(&delay, NULL);
+            nanosleep(&delay, NULL);
             continue;
         }
 
-
         // -- for each request --
         for(vector<Request>::iterator i = reqs.begin(); i != reqs.end(); i++) {
-//            cout << "[SEND] sending packet: " << endl;
-//            i->print();
-//            socket->printSettings();
             socket->init(*i);
-            //i->print();
-            // length needed for actual request data
+            uint64_t srcIp = ((uint64_t)ntohl(i->sIP))<<32;
+
             unsigned short length = 0;
             switch (i->state) {
                 case RST:
@@ -185,7 +151,7 @@ void* sendThread(void* arg) {
                     i->state = SYN_SENT;
                     i->lastSeq = random();
                     i->srcPort = 0;
-                    receiveQInsert(rcvQValType(i->lastSeq + 1, *i));
+                    receiveQInsert(rcvQValType(srcIp | (i->lastSeq + 1), *i));
                     socket->sendConnect(*i);
                     break;
                 case CLOSED:
@@ -193,35 +159,32 @@ void* sendThread(void* arg) {
                     // -- create new random sequence number --
                     i->lastSeq = random();
                     // -- add current Request to receiveQ --
-//                    cout << "[SEND] Expecting ACK for: " << endl;
-//                    i->print();
-                    receiveQInsert(rcvQValType(i->lastSeq + 1, *i));
+                    receiveQInsert(rcvQValType(srcIp | (i->lastSeq + 1), *i));
                     // -- actually send the connect (SYN) packet --
                     socket->sendConnect(*i);
-                    // cout << "sending connect" << endl;
                     break;
                 case SYN_SENT:
                     // -- complete handshake and send actual (HTTP) request --
                     socket->sendAck(*i);
                     i->state = ESTABLISHED;
-                    
+
                     //check length; if length > DATA_SIZE split the request into 2 packets
-                    length = i->theRequest().length();                   
+                    length = i->theRequest().length();
                     if(length > DATA_SIZE){
                         Request r;
                         uint16_t new_length = 0;
                         uint16_t n = length/DATA_SIZE;
                         uint32_t read = 0;
                         uint32_t seq = i->lastSeq;
-                        //cout << "SEQ: " << seq << endl; 
+                        //cout << "SEQ: " << seq << endl;
                         for(int j=0; j<=n; j++){
                             string s("");
                             if(DATA_SIZE*j > length){
                                 read = length%DATA_SIZE;
                             }else {
                                 read = DATA_SIZE;
-                            } 
-                            seq += read;    
+                            }
+                            seq += read;
                             s = i->theRequest().substr(DATA_SIZE*j,read);
                             r.sIP = i->sIP;
                             r.srcPort = i->srcPort;
@@ -229,40 +192,37 @@ void* sendThread(void* arg) {
                             r.lastAck = i->lastAck;
                             r.destPort = i->destPort;
                             r.theRequest(s);
-                            r.state = i->state; 
+                            r.state = i->state;
                             r.lastSeq = seq;
-                            
+
                             r.print();
-                              
+
                             // no odd length of data allowed
                             new_length = r.theRequest().length();
                             new_length += (new_length%2 == 1) ? 1 : 0;
-                            receiveQInsert(rcvQValType(seq, r));
-                            socket->sendRequest(r);                          
-                        }             
+                            receiveQInsert(rcvQValType(srcIp | seq, r));
+                            socket->sendRequest(r);
+                        }
                     } else {
                     // no odd length of data allowed!
-//                        cout << i->theRequest() << endl;                    
                         length += (length%2 == 1) ? 1 : 0;
-                        receiveQInsert(rcvQValType(i->lastSeq + length, *i));
-                        //usleep(1);
+                        receiveQInsert(rcvQValType(srcIp | (i->lastSeq + length), *i));
                         socket->sendRequest(*i);
                     }
                     break;
                 case ESTABLISHED:
                     // -- send dummy ACKS for incoming data --
-                    //i->rcvd = 0; // reset count for sliding window
                     socket->sendAck(*i);
                     break;
                 case CLOSEWAIT:
                     i->state = LAST_ACK;
-                    receiveQInsert(rcvQValType(i->lastSeq + 1, *i));
+                    receiveQInsert(rcvQValType(srcIp | (i->lastSeq + 1), *i));
                     // -- send FIN and ACK in one packet --
                     // --> we actually skip the official CLOSEWAIT
                     socket->sendFin(*i);
                     break;
                 case FIN_WAIT_1:
-                    receiveQInsert(rcvQValType(i->lastSeq + 1, *i));
+                    receiveQInsert(rcvQValType(srcIp | (i->lastSeq + 1), *i));
                     socket->sendFin(*i);
                     break;
                 case FIN_WAIT_2:
@@ -272,7 +232,7 @@ void* sendThread(void* arg) {
                 default:
                     cerr << "[SEND] request in undefined state: " << i->state << endl;
                     break;
-            } 
+            }
         }
         // don't forget to clean up!
         reqs.clear();
@@ -281,20 +241,16 @@ void* sendThread(void* arg) {
     pthread_exit(NULL);
 }
 
-
 /**
  * this method is called for every incoming packet
  */
 void onReceive(u_char* args, const struct pcap_pkthdr* hdr, const u_char* packet) {
-    const iphdr* ip;
-    const tcphdr* tcp;
-    Request request; 
+    Request request;
 
     // cast the sniffed packet to TCP/IP
-    ip = (const iphdr*) (packet + sizeof(struct ether_header));
-    tcp = (const tcphdr*) (packet + sizeof(struct ether_header) + sizeof(struct iphdr));
-    
-    
+    const iphdr* ip = (const iphdr*) (packet + sizeof(struct ether_header));
+    const tcphdr* tcp = (const tcphdr*) (packet + sizeof(struct ether_header) + sizeof(struct iphdr));
+
     // -- check if we are responsible for this packet --
     extern u_int16_t MIN_PORT;
     extern u_int16_t MAX_PORT;
@@ -302,28 +258,22 @@ void onReceive(u_char* args, const struct pcap_pkthdr* hdr, const u_char* packet
     if(origSrcPort < MIN_PORT || origSrcPort > MAX_PORT) {
         return;
     }
-    
-//    char* data = (char*)(packet + sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct tcphdr));
-      
+
     if(tcp->rst)
         cerr << "got reset. HELP!!!\n";
-        
-//    if(tcp->fin)
-//        cout << "got fin\n";
 
-      
     // -- see if we sent a Seq matching this Ack --
     uint32_t incomingAck = ntohl(tcp->ack_seq);
     //cout << "incomingAck: " << incomingAck << endl;
     uint32_t originalSeq = incomingAck;
+    uint64_t srcIp = ((uint64_t)ntohl(ip->daddr)) << 32;
+
     pthread_mutex_lock(&rcvQLock);
-    rcvQIterator match = receiveQ.find(originalSeq);
+    rcvQIterator match = receiveQ.find(srcIp | originalSeq);
     if(match != receiveQ.end()) {
         // -- copy the match and erase it from the receiveQ --
         request = match->second;
         receiveQ.erase(match);
-//        cout << "\t\t\t\t\tmatch!" << endl;
-//        request.print();
     }
     pthread_mutex_unlock(&rcvQLock);
 
@@ -345,23 +295,8 @@ void onReceive(u_char* args, const struct pcap_pkthdr* hdr, const u_char* packet
         return;
     }
 
-    
-/*    if(request.attempts > 0) {
-//        cout << "attempts "  << request.attempts << endl;
-        request.attempts = 0;
-    }*/
-    
     // -- handle the incoming packet according to the status of the Request --
-    
-    
-    
-    
-    //cout << "[SNIFF] rcv in state " << stateToString(request.state) << endl; 
-//    cout << "[SNIFF] received packet:" << endl;
-//    Request rcvd(ip, tcp);
-//    rcvd.print();
-//    if(tcp->fin != 0 && request.state != ESTABLISHED)
-//        cout << "[SNIFF] FIN in state: " << stateToString(request.state) << endl;
+
     switch (request.state) {
         case RST: //second RST in a row. we will break the connection and not try again. ever.
             if (tcp->rst){
@@ -371,9 +306,9 @@ void onReceive(u_char* args, const struct pcap_pkthdr* hdr, const u_char* packet
             } else if ((tcp->ack != 1) || (tcp->syn != 1)) {
                 cerr << "[SNIFF] handshake failed!" << endl;
                 request.print();
-                return; 
-            } else //we got an ack, so we can change to SYN_SENT an continue from there 
-                request.state = SYN_SENT;   
+                return;
+            } else //we got an ack, so we can change to SYN_SENT an continue from there
+                request.state = SYN_SENT;
             break;
         case CLOSED:
             cerr << "[SNIFF] received packet in wrong state: CLOSED" << endl;
@@ -384,27 +319,25 @@ void onReceive(u_char* args, const struct pcap_pkthdr* hdr, const u_char* packet
             if ((tcp->ack != 1) || (tcp->syn != 1)) {
                 cerr << "[SNIFF] handshake failed!" << endl;
                 request.print();
-                return; 
+                return;
             }
             // -- stay in SYN_SENT, switch to ESTABLISHED after sending ACK --
             break;
-        case ESTABLISHED: 
-            // can reset occur in this state? 
+        case ESTABLISHED:
+            // can reset occur in this state?
             // either way we set state to RST and have to start 3 way handshake again
-            if (tcp->rst){ 
+            if (tcp->rst){
                 cerr << "[SNIFF] RST received!" << endl;
                 request.print();
                 resetC(request);
                 request.state = RST;
             } else if (tcp->fin != 0) {
-                // -- go already to CLOSEWAIT on FIN, send ACK as next packet -- 
-//                cout << "[SNIFF] received FIN for: " << endl;
-//                request.print();
+                // -- go already to CLOSEWAIT on FIN, send ACK as next packet --
                 request.state = CLOSEWAIT;
             } else {
                 // go and read more
                 //request.rcvd = 0; // reset count for sliding window
-                receiveQInsert(rcvQValType(ntohl(tcp->ack_seq), request));
+                receiveQInsert(rcvQValType(srcIp | ntohl(tcp->ack_seq), request));
             }
             break;
         case LAST_ACK:
@@ -412,12 +345,9 @@ void onReceive(u_char* args, const struct pcap_pkthdr* hdr, const u_char* packet
             success(request);
             return;
         case FIN_WAIT_1:
-//            cout << "[SNIFF] in FIN_WAIT_1: " << endl;
-//            cout << "FIN: " << tcp->fin << endl;
-            
-            // can reset occur in this state? 
+            // can reset occur in this state?
             // either way we set state to RST and have to start 3 way handshake again
-            if (tcp->rst){ 
+            if (tcp->rst){
                 cerr << "[SNIFF] RST received!" << endl;
                 request.print();
                 resetC(request);
@@ -425,32 +355,31 @@ void onReceive(u_char* args, const struct pcap_pkthdr* hdr, const u_char* packet
             } else if(tcp->fin != 0) {
                 request.state = FIN_WAIT_2;
             } else {
-                receiveQInsert(rcvQValType(ntohl(tcp->ack_seq), request));
+                receiveQInsert(rcvQValType(srcIp  | ntohl(tcp->ack_seq), request));
                 return;
             }
             break;
         case CLOSING:
-    
+
             break;
         case FIN_WAIT_2:
-    
+
             break;
         case TIME_WAIT:
-    
+
             break;
         default:
             cerr << "[SNIFF] request in undefined state: " << request.state << endl;
             break;
-    } 
-    
+    }
+
     // -- set lastAck of this Request to what the next expected ACK is --
     int acked = ntohs(ip->tot_len) - (ip->ihl * 4) - (tcp->doff * 4);
     if(tcp->fin || tcp->syn)
         acked++;
-    
+
     request.lastAck = ntohl(tcp->seq) + acked;
-    
-    
+
     // -- set lastSeq of this Request to what the target expects next --
     if (tcp->ack != 0) request.lastSeq = ntohl(tcp->ack_seq);
     else cout << "[SNIFF] no ACK" << endl;
@@ -473,7 +402,7 @@ void* sniffThread(void* arg) {
     filter += DESTINATION_IP;
     //printf("-------> %s\n",eth_device);
     //Sniffer sniffer(filter, "eth1");
-    
+
     Sniffer sniffer(filter, eth_device);
 
     if(sniffer.isOK()) {
@@ -493,53 +422,31 @@ void* sniffThread(void* arg) {
  * this thread is responsible for finding Requests that are timed out
  */
 void* watchdogThread(void* arg) {
-     
-    queue<uint32_t> deleteQ;
-    queue<uint32_t> retryQ;
+
+    queue<uint64_t> deleteQ;
+    queue<uint64_t> retryQ;
     while(true) {
         sleep(1);
         time_t now = time(NULL);
-        
+
         pthread_mutex_lock(&rcvQLock);
-        
+
         for(rcvQIterator i = receiveQ.begin(); i != receiveQ.end(); i++) {
             if( now > i->second.timeout ) {
                 i->second.attempts++;
-//                cout << "\x1b[31mprobably packet lost...";
                 if(i->second.attempts < ATTEMPTS) {
-//                    cout << "retry packet: " << endl;
-//                    i->second.print();
                     switch(i->second.state) {
                         case (SYN_SENT):
-                            if(i->second.attempts < (ATTEMPTS / 2)) {
-                                // -- guess our ACK and request was lost --
-                                i->second.timeout += 1;
-                                pthread_mutex_lock(&sendQLock);
-                                sendQ.push_back(Request(i->second));
-                                pthread_mutex_unlock(&sendQLock);
-                            } else {
-                                // -- guess our SYN was lost --
-                                i->second.state = CLOSED;
-                                retryQ.push(i->first);
-                            }
+                            // -- guess our SYN was lost --
+                            i->second.state = CLOSED;
+                            retryQ.push(i->first);
                             break;
                         case (ESTABLISHED):
-                            if(i->second.attempts < (ATTEMPTS / 2)) {
-                                // -- guess a simple ACK of us was lost --
-        //                        cout << "retry ACK" << endl;
-                                i->second.timeout += 1;
-                                pthread_mutex_lock(&sendQLock);
-                                sendQ.push_back(Request(i->second));
-                                pthread_mutex_unlock(&sendQLock);
-                            } else {
-                                // -- guess we missed the FIN -> active close --
-        //                        cout << "guess FIN" << endl;
-                                i->second.state = FIN_WAIT_1;
-                                retryQ.push(i->first);
-                            }
+                            // -- guess we missed the FIN -> active close --
+                            i->second.state = FIN_WAIT_1;
+                            retryQ.push(i->first);
                             break;
                     }
-                        
 /*                    if(i->second.attempts == ATTEMPTS - 1) {
                         // -- guess we missed the FIN --
                         deleteQ.push(i->first);
@@ -557,11 +464,9 @@ void* watchdogThread(void* arg) {
                 }
             }
         }
-        
 
         while(!retryQ.empty()) {
             // -- send  --
-//            cout << "[WATCHD] try again" << endl;
             Request retry = receiveQ[retryQ.front()];
             receiveQ.erase(retryQ.front());
             pthread_mutex_lock(&sendQLock);
@@ -574,7 +479,7 @@ void* watchdogThread(void* arg) {
             receiveQ.erase(deleteQ.front());
             deleteQ.pop();
         }
-        
+
         pthread_mutex_unlock(&rcvQLock);
     }
 
@@ -598,7 +503,7 @@ Requestor::~Requestor() {
 }
 
 bool Requestor::initialize(string statFilename, unsigned short statAvgCount, unsigned short statPeriod, char* device) {
-    
+
     this->statFilename = statFilename;
     this->statAvgCount = statAvgCount;
     this->statPeriod = statPeriod;
@@ -620,10 +525,8 @@ bool Requestor::initialize(string statFilename, unsigned short statAvgCount, uns
         run(runMe);
     }
 
-    
     int retval = 0;
     pthread_attr_t attr;
-    
 
     retval = pthread_attr_init(&attr);
     if (retval != 0) printf("pthread_attr_init failed: %d", retval);
@@ -636,7 +539,6 @@ bool Requestor::initialize(string statFilename, unsigned short statAvgCount, uns
         return false;
     }
     // -- wait to make give Sniffer enough time to initialize! --
-    //usleep(10000);
     sleep(1);
     // -- 2. start send thread --
     retval = pthread_create(&sendThreadID, &attr, sendThread, (void *)NULL);
@@ -688,25 +590,17 @@ bool Requestor::request(Request& request) {
     pthread_mutex_lock(&sendQLock);
     sendQ.push_back(request);
     pthread_mutex_unlock(&sendQLock);
-    
+
     return true;
 }
 
 unsigned int Requestor::latelySent() {
-/*    pthread_mutex_lock(&sentLock);
-    unsigned long int sent = sentRequests.size();
-    sentRequests.clear();
-    pthread_mutex_unlock(&sentLock);*/
     unsigned long int sent = okCnt;
     okCnt = 0;
     return sent;
 }
 
 unsigned int Requestor::latelyFailed() {
-    /*pthread_mutex_lock(&failedLock);
-    unsigned long int failed = failedRequests.size();
-    failedRequests.clear();
-    pthread_mutex_unlock(&failedLock);*/
     unsigned long int failed = failedCnt;
     failedCnt = 0;
     return failed;
@@ -719,8 +613,6 @@ unsigned int Requestor::latelyReset() {
 }
 
 bool Requestor::writeStats() {
-    //static unsigned long int counter = statPeriod;
-
     if(statAvgCount < 1) return false;
 
     // -- add recent Requests to the respective buffer --
@@ -728,12 +620,14 @@ bool Requestor::writeStats() {
     unsigned short failed = latelyFailed();
     unsigned short reset = latelyReset();
     cout << "sent: " << sent;
-    cout << "  ---  failed: ";
-    if(failed > 0)
-    {
+    cout << "  --- failed: ";
+    if(failed > 0) {
         cout << "\x1b[31m";
     }
     cout << failed << "\x1b[0m";
+    cout << " --- sent total: " << okCntTotal;
+    cout << " --- failed total: " << failedCntTotal;
+    cout << " --- rate: " << okCntTotal/(float)(failedCntTotal + okCntTotal)*100.0 << "%";
     cout << " --- reset: " << reset << endl;
     sentBuffer.push_back(sent);
     failedBuffer.push_back(failed);
@@ -746,30 +640,24 @@ bool Requestor::writeStats() {
     if(failedBuffer.size() > (statAvgCount))
         failedBuffer.erase(failedBuffer.begin());
 
-
     int sentSum = 0;
     int failedSum = 0;
     for(unsigned short bufferIndex = 0; bufferIndex < sentBuffer.size(); ++bufferIndex) {
         sentSum += sentBuffer[bufferIndex];
         failedSum += failedBuffer[bufferIndex];
     }
-    
+
     float rate;
-    if((sentSum == 0 && failedSum == 0))
-    {
+    if((sentSum == 0 && failedSum == 0)) {
         rate = 1.0f;
     }
-    else
-    {
+    else {
         rate = (float)sentSum / (float)(sentSum + failedSum);
     }
-        
-    
+
     char entry[50];
     sprintf(entry, " %.2f %.2f %.2f", (float) (sentSum / (float) statAvgCount), (float) (failedSum  / (float) statAvgCount), rate * 100.0f);
-    //cout << "adding entry: " << entry << endl;
     statistics.push_back(entry);
-
 
     // -- prune statistics to period --
     if(statistics.size() > statPeriod)
@@ -777,8 +665,7 @@ bool Requestor::writeStats() {
 
     string tmpStatFilename = statFilename + "tmp";
     ofstream statFile(tmpStatFilename.c_str());
-    if(!statFile.good())
-    {
+    if(!statFile.good()) {
         return false;
     }
     for(unsigned short j = 0; j < statistics.size(); ++j) {

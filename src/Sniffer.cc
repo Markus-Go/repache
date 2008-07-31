@@ -11,17 +11,13 @@
  *
  * Project: repache
  * File: sniffer.cc
- * Purpose: captures packets from thwe device in promiscuous mode 
+ * Purpose: captures packets from thwe device in promiscuous mode
  * Responsible: Christian Kofler
  * Primary Repository: http://repache.googlecode.com/svn/trunk/
  * Web Sites: www.iupr.org, www.dfki.de, http://code.google.com/p/repache/
  */
 
 #include "Sniffer.h"
-
-#include <net/ethernet.h>
-#include <netinet/ip.h>
-#include <netinet/tcp.h>
 
 Sniffer::Sniffer(string filter, string interface) {
     handle = 0;
@@ -63,50 +59,21 @@ Sniffer::Sniffer(string filter, string interface) {
     // cleanup
     pcap_freecode(&fp);
 
-    if(handle != 0) ok = true;
-
+    ok = (handle != 0);
 }
 
 Sniffer::~Sniffer() {
     /* close the session */
-    if(handle != 0) pcap_close(handle);
+    if(handle != 0) {
+        pcap_close(handle);
+    }
 }
 
 void Sniffer::sniff(pcap_handler onReceive) {
-    if(!ok)
-    {
+    if(!ok) {
         printf("sniff error\n");
         return;
     }
-
     // get all packets from the sniffed device and pass them to "callback"
     pcap_loop(handle, -1, onReceive, 0);
-};
-
-//old
-/*
-uint32_t Sniffer::sniffSeq(uint32_t expectedACK, unsigned short limit) {
-    uint32_t remoteSeq = 0;
-    unsigned short count = 0;
-    struct pcap_pkthdr header;
-    const u_char *sniffedPacket;
-    const struct iphdr* ip;
-    const struct tcphdr* tcp;
-
-    while(remoteSeq == 0 && count < limit) {
-        // sniff it
-        sniffedPacket = pcap_next(handle, &header);
-        // cast it to TCP/IP
-        ip = (struct iphdr*) (sniffedPacket + sizeof(struct ether_header));
-        tcp = (struct tcphdr*) (sniffedPacket + sizeof(struct ether_header) + sizeof(struct iphdr));
-        //printf("expected: %ul\n", expectedACK);
-        //printf("real:     %ul\n", ntohl(tcp->ack_seq));
-        if(expectedACK == ntohl(tcp->ack_seq)) {
-            remoteSeq = ntohl(tcp->seq);
-        }
-        ++count;
-    }
-
-    return remoteSeq;
 }
-*/

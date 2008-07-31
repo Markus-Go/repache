@@ -11,14 +11,12 @@
  *
  * Project: repache
  * File: main.cc
- * Purpose: main file of repache 
+ * Purpose: main file of repache
  * Responsible: Christian Kofler
  * Primary Repository: http://repache.googlecode.com/svn/trunk/
  * Web Sites: www.iupr.org, www.dfki.de, http://code.google.com/p/repache/
  */
 
-#include "Requestor.h"
-#include "apacheLog.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -28,6 +26,8 @@
 #include <sys/time.h>
 #include <getopt.h>
 
+#include "Requestor.h"
+#include "apacheLog.h"
 #include "tcpoptions.h"
 
 using namespace std;
@@ -71,10 +71,10 @@ void parseArgs(int argc, char *argv[]){
                     break;
                 case 'd':
                     device = optarg;
-                    break;    
-                case 'f': 
+                    break;
+                case 'f':
                     logFileName = optarg;
-                    break;   
+                    break;
                 case 'h':
                     printUsage(argc,argv);
                     exit(EXIT_SUCCESS);
@@ -84,23 +84,23 @@ void parseArgs(int argc, char *argv[]){
         if(binaryLog & !logFileName){
             printf("\n\nYou have to supply a logfile with binary format!!\n");
             exit(EXIT_FAILURE);
-        } 
+        }
         if(!logFileName){
             printf("\n\nYou have to supply an Apache logfile!!\n");
             exit(EXIT_FAILURE);
-        } 
+        }
         if(!device){
             device = "eth1";
-        }          
+        }
         if(option_index < argc-1){
             destinationIP = argv[argc-1];
         }else {
             destinationIP = "10.0.0.1";
-        }     
+        }
         printf("Destination IP: %s\n", destinationIP);
         printf("Device: %s\n", device);
     }
-    
+
 }
 
 void printUsage(int argc, char *argv[]){
@@ -155,28 +155,28 @@ void readBinaryLog(string logFileName) {
     ifstream inStream;
     // -- open file and set pointer "at the end" (ate) --
     inStream.open(logFileName.c_str(), ios::in|ios::binary|ios::ate);
-    
+
     if(!inStream.is_open()) {
         cerr << "Could not open file: "<< logFileName << endl;
         exit(-1);
     }
 
     unsigned long fileSize = inStream.tellg();
-    
+
     if(fileSize < sizeof(valType)) {
         cerr << logFileName << " is empty or contains no useful data" << endl;
         exit(-1);
     }
-    
+
     // -- verify that the size fits exactly in our requests multimap --
     if((fileSize % sizeof(valType)) != 0) {
         cerr << logFileName << " seems not proper formatted!" << endl;
         exit(-1);
     }
-    
+
     unsigned int entries = fileSize / sizeof(valType);
 
-    // -- reset pointer to the begin of the file --    
+    // -- reset pointer to the begin of the file --
     inStream.seekg(0, ios::beg);
     unsigned int cnt = 0;
     // -- read all entries and add them to the internal storage --
@@ -187,7 +187,7 @@ void readBinaryLog(string logFileName) {
         ++cnt;
     }
     inStream.close();
-    
+
     if(requests.size() != entries) {
         cerr << "size of entries in file(" << entries << ") and actually read(";
         cerr << requests.size() << ") does not match!" << endl;
@@ -203,7 +203,7 @@ void readBinaryLog(string logFileName) {
 int main(int argc, char* argv[]) {
     // -- check parameters and display usage if not enough --
     parseArgs(argc,argv);
-    
+
     unsigned int minSleep = 0;
 
     initTcpOptions(tcpOptions);
@@ -223,11 +223,11 @@ int main(int argc, char* argv[]) {
     // -- be a bit pessimistic about the estimation! --
     minSleep *= 2;
     cout << "average sleep measured (ms): " << minSleep / 1000 << endl;
-    
+
     srandom(time(NULL)*getpid());
 
     printf("logname: %s\n\n\n", logFileName);
-    
+
     Requestor requestor(destinationIP);
     requestor.initialize("stats", 3, 60, device);
 
@@ -244,9 +244,6 @@ int main(int argc, char* argv[]) {
     // set the end to one after the timestamp of the last of the requests
     time_t endTimestamp = (--requests.end())->first;
 
-    //cout << "First Timestamp: " << asctime(gmtime(&currentTimestamp)) << endl;
-    //cout << "Last Timestamp: " << asctime(gmtime(&endTimestamp)) << endl;
-
     // the total amount of microseconds for sending within one timestamp
     long int totalUsec = 0;
     unsigned long now = 0;
@@ -254,14 +251,12 @@ int main(int argc, char* argv[]) {
     unsigned long wakeup = 0;
     unsigned long sleep = 0;
 
-
     // a factor to simulate a higher load by compressing requests
     unsigned short compressor = 0;
 
     // -- issue all requests within the respective timestamps --
     // -- the total time is distributed randomly to the requests --
-    while(currentTimestamp <= endTimestamp)
-    {
+    while(currentTimestamp <= endTimestamp) {
         unsigned int reqCount = requests.count(currentTimestamp);
         // compress requests to simulate higher load
         for (int i = 1; i <= compressor; ++i) {
@@ -269,9 +264,8 @@ int main(int argc, char* argv[]) {
         }
         cout << endl << reqCount << ": " << asctime(gmtime(&currentTimestamp));
         totalUsec = 1000000;
-        //srand(currentTimestamp * 42);
         if(reqCount > 0) {
-            // get all requests in the range from currentTimestamp + eventual 
+            // get all requests in the range from currentTimestamp + eventual
             // compress factor and go through them
             // pos.first = firstResult, pos.second = firstNotResult
             iterType pos = requests.lower_bound(currentTimestamp);
@@ -281,7 +275,7 @@ int main(int argc, char* argv[]) {
                 sleep = (compressor > 0) ? totalUsec/reqCount/compressor : totalUsec/reqCount;
                 last = timestamp();
                 requestor.request(pos->second);
-                wakeup = last + sleep; 
+                wakeup = last + sleep;
                 // issue the current request
                 now = timestamp();
                 while(now < wakeup) {
@@ -291,19 +285,15 @@ int main(int argc, char* argv[]) {
                     now = timestamp();
                 }
                 totalUsec -= now - last;
-                
                 // decrease amount of remaining requests
                 --reqCount;
             }
         }
         // sleep the rest of the second of this timestamp
-//        cout << "[MAIN] remaining usec: " << totalUsec << endl;
         if (totalUsec > minSleep && totalUsec > 0) {
             usleep(totalUsec);
         }
-//        cout << "sent: " << requestor.latelySent();
-//        cout << "  ---  failed: " << requestor.latelyFailed() << endl;
-        
+
         if(!requestor.writeStats()) {
             cout << "stat file error\n";
         }
@@ -314,7 +304,7 @@ int main(int argc, char* argv[]) {
     // TODO solve abort a bit nicer!
     // e.g. catch abort signal: stop new requests, wait for old ones
     // to finish, wait for timeouts, clean exit
-    // catch another interrupt for a brutal quit of the app (dev feature!) 
+    // catch another interrupt for a brutal quit of the app (dev feature!)
 
     // provide all threads enough time to finish their work
     short cnt = 0;
