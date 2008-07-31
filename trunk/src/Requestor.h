@@ -30,12 +30,23 @@
 #include <arpa/inet.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
+#include <pthread.h>
+#include <net/ethernet.h>
+#include <arpa/inet.h>
+#include <cstdio>
+#include <set>
+#include <map>
+#include <queue>
+#include <sys/time.h>
+#include <unistd.h>
+
+#include "Sniffer.h"
 
 using namespace std;
 
     // tcp + ip header size: 20 byte each
     // mtu: 1500 byte
-    // this leaves 1460 byte for data, in our case a http request 
+    // this leaves 1460 byte for data, in our case a http request
 #define DATA_SIZE 1460
 
 void printStats();
@@ -43,7 +54,7 @@ void printStats();
 /**
  * the possible state of a TCP connection
  */
-enum TcpState { 
+enum TcpState {
     // -- 3 way handshake --
     CLOSED=0,       // no connection
     SYN_SENT,       // initialize 3 way handshake with SYN
@@ -62,7 +73,7 @@ enum TcpState {
 
 static string stateToString(TcpState state) {
     string out;
-    
+
     switch (state) {
         case CLOSED:
             out = "CLOSED";
@@ -93,12 +104,12 @@ static string stateToString(TcpState state) {
             break;
          case RST:
             out = "RST";
-            break;   
+            break;
         default:
             out = "UNDEFINED";
             break;
     }
-    
+
     return out;
 }
 
@@ -127,16 +138,16 @@ struct Request {
             lastSeq(0), lastAck(0), state(CLOSED), attempts(0) {
         strcpy(theReq, "");
     }
-    
+
     Request(const Request& in) {
         init(in);
     }
-    
+
     Request& operator=(const Request& rhs) {
         init(rhs);
         return *this;
     }
-    
+
     void init(const Request& in) {
         sIP = in.sIP;
         dIP = in.dIP;
@@ -149,38 +160,38 @@ struct Request {
         timeout = in.timeout;
         attempts = in.attempts;
     }
-    
+
     void destIP(string ip) {
         dIP = inet_addr(ip.c_str());
     }
-    
+
     string destIP() {
         if (dIP == 0) return "";
         struct in_addr addr;
         addr.s_addr = dIP;
         return inet_ntoa(addr);
     }
-    
+
     void srcIP(string ip) {
         sIP = inet_addr(ip.c_str());
     }
-    
+
     string srcIP() {
         if (sIP == 0) return "";
         struct in_addr addr;
         addr.s_addr = sIP;
         return inet_ntoa(addr);
     }
-    
+
     void theRequest(string req) {
         strcpy(theReq, req.c_str());
     }
-    
+
     string theRequest() {
-        string s = theReq; 
-        return s;             
+        string s = theReq;
+        return s;
     }
-    
+
     Request(const iphdr* ip, const tcphdr* tcp) {
         sIP = ip->saddr;
         dIP= ip->daddr;
@@ -194,14 +205,14 @@ struct Request {
     void print() {
         cout << "\n+-- -- --" << endl;
         cout << "| " << srcIP() << ":" << this->srcPort << " -> ";
-        
+
         cout << destIP() << ":" << this->destPort << endl;
         cout << "| lastSeq: " << this->lastSeq << "  --  lastAck: " << lastAck << endl;
         cout << "| Request: " << this->theReq << endl;
         cout << "| state: " << stateToString(this->state) << endl;
         cout << "+-- -- --\n" << endl;
     }
-    
+
 };
 
 
@@ -248,14 +259,14 @@ public:
      * The counter is reset to zero everytime it is read!!!
      */
     unsigned int latelyFailed();
-    
+
      /**
      * Returns the number of reset requests. Multiple from the same IP
      * address count as one!
      * The counter is reset to zero everytime it is read!!!
      */
     unsigned int latelyReset();
-    
+
     bool writeStats();
 private:
     string srcIP;
@@ -266,7 +277,7 @@ private:
     pthread_t sendThreadID;
     pthread_t sniffThreadID;
     pthread_t watchdogThreadID;
-    
+
     string statFilename;
     unsigned short statAvgCount;
     unsigned short statPeriod;

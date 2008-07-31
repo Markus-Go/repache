@@ -10,25 +10,21 @@
  * limitations under the License.
  *
  * Project: repache
- * File: RawTcpSocket.cc 
- * Purpose: socket for sending raw packets 
+ * File: RawTcpSocket.cc
+ * Purpose: socket for sending raw packets
  * Responsible: Christian Kofler
  * Primary Repository: http://repache.googlecode.com/svn/trunk/
  * Web Sites: www.iupr.org, www.dfki.de, http://code.google.com/p/repache/
  */
 
 #include "RawTcpSocket.h"
-#include "Sniffer.h"
-
-#include <arpa/inet.h> // inet_addr()
-#include <arpa/inet.h>
 
 RawTcpSocket::RawTcpSocket() {
-    
+
     timeval realTime;
     gettimeofday(&realTime, 0);
     srandom((unsigned)realTime.tv_sec * 42  + realTime.tv_usec);
-    
+
     // IP RAW Socket Descriptor
     if( (rawsock = socket(PF_INET, SOCK_RAW, 6) ) == -1 ) {
         perror("could not create socket");
@@ -164,7 +160,7 @@ bool RawTcpSocket::close() {
 }
 
 bool RawTcpSocket::send(unsigned char* data, unsigned short length) {
-    
+
     extern TcpOption tcpOptions[];
 
     // -- currently tcp options only in syn packets --
@@ -177,9 +173,9 @@ bool RawTcpSocket::send(unsigned char* data, unsigned short length) {
         ip.tot_len = htons(40 + tcpOptions[tcpOptionsIndex].length);
         tcp.doff = 5 + (tcpOptions[tcpOptionsIndex].length / 4);
     }
-    
+
     unsigned short hdrLen = ip.ihl*4 + tcp.doff*4;
-    
+
     //-- allocate packet to send --
     packetsize = hdrLen;
     // we must not use tcp packets of odd length!
@@ -202,12 +198,12 @@ bool RawTcpSocket::send(unsigned char* data, unsigned short length) {
     //-- copy headers and evtl data --
     memcpy(packet, &ip, sizeof(struct iphdr));
     memcpy(packet + sizeof(struct iphdr), &tcp, sizeof(struct tcphdr));
-    
+
     if(tcpOptionsIndex >= 0) { // only if options were set
         memcpy(packet + sizeof(struct iphdr) + sizeof(struct tcphdr),
                 tcpOptions[tcpOptionsIndex].options, tcpOptions[tcpOptionsIndex].length);
     }
-    
+
     if(packetsize > hdrLen) memcpy(packet + hdrLen, data, length+padding);
 
     //-- actually send the packet --
@@ -222,10 +218,10 @@ bool RawTcpSocket::send(unsigned char* data, unsigned short length) {
 	printf("%s %d\n", inet_ntoa(destAddr.sin_addr), packetsize);
         return false;
     }
-    
+
     if(bytesSent < packetsize)
         cout << "########################## ERROR ##########################\n";
-    
+
 
     return true;
 }
@@ -279,7 +275,7 @@ uint16_t RawTcpSocket::checksum(unsigned short *addr, unsigned int count) {
 uint16_t RawTcpSocket::tcpChecksum(unsigned char* data, unsigned short length) {
     TcpPseudoHeader pseudohead;
     extern TcpOption tcpOptions[];
-    
+
     uint16_t total_len = ntohs(ip.tot_len);
 
     //printf("total_len: %d\n", total_len);
@@ -302,13 +298,13 @@ uint16_t RawTcpSocket::tcpChecksum(unsigned char* data, unsigned short length) {
 
     memcpy((unsigned char *)total, &pseudohead, sizeof(struct TcpPseudoHeader));
     memcpy((unsigned char *)total + sizeof(struct TcpPseudoHeader), (unsigned char *)&tcp, sizeof(struct tcphdr));
-    
+
 //    memcpy((unsigned char *)total + sizeof(struct TcpPseudoHeader) + sizeof(struct tcphdr), (unsigned char *) &tcp + (sizeof(struct tcphdr)), tcpopt_len);
     if(tcpopt_len > 0) {
         memcpy((unsigned char *)total + sizeof(struct TcpPseudoHeader) + sizeof(struct tcphdr),
                 tcpOptions[tcpOptionsIndex].options, tcpopt_len);
     }
-    
+
     if(length > 0 && data != 0) memcpy((unsigned char *)total + sizeof(struct TcpPseudoHeader) + sizeof(struct tcphdr) + tcpopt_len, data, length);
     /*
     printf("pseud length: %d\n",ntohs(pseudohead.length));

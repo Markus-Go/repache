@@ -2,8 +2,8 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.61)
-AC_INIT(repache, 0.2, matthias.reif@iupr.dfki.de)
-AM_INIT_AUTOMAKE(repache, 0.2)
+AC_INIT(repache, 0.3, matthias.reif@iupr.dfki.de)
+AM_INIT_AUTOMAKE(repache, 0.3)
 AC_OUTPUT(Makefile src/Makefile man/Makefile)
 AC_CONFIG_SRCDIR(src/RawTcpSocket.h)
 AM_CONFIG_HEADER(config.h)
