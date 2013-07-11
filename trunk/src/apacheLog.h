@@ -20,6 +20,8 @@
 #ifndef APACHELOG_H_
 #define APACHELOG_H_
 
+#include <cstdlib>
+
 // GLOBALS
 /**
  * all requests from an apache logFile in a multimap with their respective
