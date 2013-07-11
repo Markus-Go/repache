@@ -20,6 +20,10 @@
 #ifndef TCPOPTIONS_H_
 #define TCPOPTIONS_H_
 
+#include <iostream>
+#include <stdlib.h>
+#include <cstring>
+
 #define NUM_TCP_OPTIONS 7
 
 typedef struct{
