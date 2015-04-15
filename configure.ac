@@ -2,11 +2,11 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.61)
-AC_INIT(repache, 0.3, matthias.reif@iupr.dfki.de)
-AM_INIT_AUTOMAKE(repache, 0.3)
+AC_INIT(repache, 0.3.1, Markus-Go@users.noreply.github.com)
 AC_OUTPUT(Makefile src/Makefile man/Makefile)
 AC_CONFIG_SRCDIR(src/RawTcpSocket.h)
 AM_CONFIG_HEADER(config.h)
+AM_INIT_AUTOMAKE
 
 # Checks for programs.
 AC_PROG_CXX
@@ -17,7 +17,7 @@ AC_CHECK_LIB(pthread, pthread_create)
 AC_CHECK_LIB(pcap, pcap_open_live)
 
 # Checks for header files.
-AC_CHECK_HEADERS([arpa/inet.h sys/socket.h sys/time.h unistd.h],,AC_MSG_ERROR(header missing))
+AC_CHECK_HEADERS([arpa/inet.h sys/socket.h sys/time.h unistd.h pcap.h],,AC_MSG_ERROR(header missing))
 
 # Checks for typedefs, structures, and compiler characteristics.
 AC_HEADER_STDBOOL
